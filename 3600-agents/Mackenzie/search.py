@@ -1,12 +1,12 @@
 import math
 from game.enums import MoveType, BOARD_SIZE
 from game.move import Move
-
-
+ 
+ 
 class Searcher:
     """
     Iterative-deepening expectiminimax with alpha-beta pruning.
-
+ 
     The game tree has two types of nodes:
       - Player nodes  (max nodes): we pick the best move
       - Opponent nodes (min nodes): opponent picks worst-for-us move
@@ -14,7 +14,7 @@ class Searcher:
     Search moves are NOT included in the tree — we handle them separately
     in agent.py based on the rat tracker's EV.
     """
-
+ 
     def __init__(self, heuristic_fn, rat_tracker):
         """
         Parameters
@@ -25,7 +25,7 @@ class Searcher:
         self.heuristic = heuristic_fn
         self.rat_tracker = rat_tracker
         self.best_move = None
-
+ 
     def choose_move(self, board, time_budget: float):
         """
         Iterative deepening: deepen until time_budget (seconds) is nearly gone.
@@ -33,10 +33,10 @@ class Searcher:
         """
         import time
         deadline = time.perf_counter() + time_budget
-
+ 
         self.best_move = None
         fallback = self._get_fallback(board)
-
+ 
         for depth in range(1, 10):
             if time.perf_counter() >= deadline - 0.01:
                 break
@@ -49,27 +49,27 @@ class Searcher:
                     self.best_move = move
             except _TimeUp:
                 break
-
+ 
         return self.best_move if self.best_move is not None else fallback
-
+ 
     # ------------------------------------------------------------------
     # Core minimax
     # ------------------------------------------------------------------
-
+ 
     def _minimax(self, board, depth, alpha, beta, maximizing, deadline):
         import time
         if time.perf_counter() >= deadline:
             raise _TimeUp()
-
+ 
         if depth == 0 or board.is_game_over():
             return None, self.heuristic(board, self.rat_tracker)
-
-        moves = board.get_valid_moves(enemy=False, exclude_search=True)
+ 
+        moves = _filter_and_order(board.get_valid_moves(enemy=False, exclude_search=True))
         if not moves:
             return None, self.heuristic(board, self.rat_tracker)
-
+ 
         best_move = moves[0]
-
+ 
         if maximizing:
             best_val = -math.inf
             for move in moves:
@@ -102,20 +102,35 @@ class Searcher:
                 if beta <= alpha:
                     break  # prune
             return best_move, best_val
-
+ 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
+ 
     def _get_fallback(self, board):
         """Return a safe non-search move, preferring prime > plain."""
-        moves = board.get_valid_moves(enemy=False, exclude_search=True)
-        # prefer prime moves as a fallback
-        for m in moves:
-            if m.move_type == MoveType.PRIME:
-                return m
+        moves = _filter_and_order(board.get_valid_moves(enemy=False, exclude_search=True))
         return moves[0] if moves else Move.search((0, 0))
-
-
+ 
+ 
+def _filter_and_order(moves):
+    """
+    1. Remove length-1 carpet rolls (always score -1, never worth it).
+    2. Order: carpet rolls (long first) > prime > plain.
+    """
+    filtered = [m for m in moves
+                if not (m.move_type == MoveType.CARPET and m.roll_length == 1)]
+ 
+    def priority(m):
+        if m.move_type == MoveType.CARPET:
+            return (0, -m.roll_length)  # longer rolls first
+        if m.move_type == MoveType.PRIME:
+            return (1, 0)
+        return (2, 0)  # plain last
+ 
+    return sorted(filtered, key=priority)
+ 
+ 
 class _TimeUp(Exception):
     pass
+ 
